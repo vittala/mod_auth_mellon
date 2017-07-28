@@ -71,8 +71,8 @@ void am_cache_init(am_mod_cfg_rec *mod_cfg)
  *
  * Parameters:
  *  server_rec *s        The current server.
- *  const char *key      The session key or user
  *  am_cache_key_t type  AM_CACHE_SESSION or AM_CACHE_NAMEID
+ *  const char *key      The session key or user
  *
  * Returns:
  *  The session entry on success or NULL on failure.
@@ -273,12 +273,15 @@ const char *am_cache_entry_get_string(am_cache_entry_t *e,
  * Parameters:
  *  server_rec *s        The current server.
  *  const char *key      The key of the session to allocate.
+ *  const char *cookie_token  The cookie token to tie the session to.
  *
  * Returns:
  *  The new session entry on success. NULL if key is a invalid session
  *  key.
  */
-am_cache_entry_t *am_cache_new(server_rec *s, const char *key)
+am_cache_entry_t *am_cache_new(server_rec *s,
+                               const char *key,
+                               const char *cookie_token)
 {
     am_cache_entry_t *t;
     am_mod_cfg_rec *mod_cfg;
@@ -374,6 +377,7 @@ am_cache_entry_t *am_cache_new(server_rec *s, const char *key)
     t->logged_in = 0;
     t->size = 0;
 
+    am_cache_storage_null(&t->cookie_token);
     am_cache_storage_null(&t->user);
     am_cache_storage_null(&t->lasso_identity);
     am_cache_storage_null(&t->lasso_session);
@@ -383,6 +387,18 @@ am_cache_entry_t *am_cache_new(server_rec *s, const char *key)
     t->pool_size = am_cache_entry_pool_size(mod_cfg);
     t->pool[0] = '\0';
     t->pool_used = 1;
+
+    rv = am_cache_entry_store_string(t, &t->cookie_token, cookie_token);
+    if (rv != 0) {
+        /* For some strange reason our cookie token is too big to fit in the
+         * session. This should never happen outside of absurd configurations.
+         */
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
+                     "Unable to store cookie token in new session.");
+        t->key[0] = '\0'; /* Mark the entry as free. */
+        apr_global_mutex_unlock(mod_cfg->lock);
+        return NULL;
+    }
 
     return t;
 }
@@ -724,7 +740,7 @@ int am_cache_set_lasso_state(am_cache_entry_t *session,
                                          lasso_identity);
     if (status != 0) {
         ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL,
-                     "Lasso identity is to big for storage. Size of lasso"
+                     "Lasso identity is too big for storage. Size of lasso"
                      " identity is %" APR_SIZE_T_FMT ".",
                      (apr_size_t)strlen(lasso_identity));
         return HTTP_INTERNAL_SERVER_ERROR;
@@ -735,7 +751,7 @@ int am_cache_set_lasso_state(am_cache_entry_t *session,
                                          lasso_session);
     if (status != 0) {
         ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL,
-                     "Lasso session is to big for storage. Size of lasso"
+                     "Lasso session is too big for storage. Size of lasso"
                      " session is %" APR_SIZE_T_FMT ".",
                      (apr_size_t)strlen(lasso_session));
         return HTTP_INTERNAL_SERVER_ERROR;
@@ -746,8 +762,8 @@ int am_cache_set_lasso_state(am_cache_entry_t *session,
                                          lasso_saml_response);
     if (status != 0) {
         ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL,
-                     "Lasso SAML response is to big for storage. Size of "
-                     "lasso SAML Reponse is %" APR_SIZE_T_FMT ".",
+                     "Lasso SAML response is too big for storage. Size of "
+                     "lasso SAML Response is %" APR_SIZE_T_FMT ".",
                      (apr_size_t)strlen(lasso_saml_response));
         return HTTP_INTERNAL_SERVER_ERROR;
     }

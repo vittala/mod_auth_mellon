@@ -1559,6 +1559,12 @@ static int add_attributes(am_cache_entry_t *session, request_rec *r,
                 continue;
             }
 
+            if (attribute->Name == NULL) {
+                ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+                              "SAML 2.0 attribute without name.");
+                continue;
+            }
+
             /* attribute->AttributeValue is a list of
              * LassoSaml2AttributeValue objects.
              */
@@ -2655,7 +2661,7 @@ static int am_set_authn_request_post_content(request_rec *r, LassoLogin *login)
  */
 static int am_set_authn_request_paos_content(request_rec *r, LassoLogin *login)
 {
-    apr_table_setn(r->headers_out, "Content-Type", MEDIA_TYPE_PAOS);
+    ap_set_content_type(r, MEDIA_TYPE_PAOS);
     ap_rputs(LASSO_PROFILE(login)->msg_body, r);
 
     return OK;
